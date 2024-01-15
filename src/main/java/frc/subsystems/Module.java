@@ -9,8 +9,8 @@ import edu.wpi.first.wpilibj.RobotController;
 import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.SubsystemBase;
 import edu.wpi.first.wpilibj2.command.sysid.SysIdRoutine;
+import edu.wpi.first.wpilibj2.command.sysid.SysIdRoutine.Mechanism;
 import frc.robot.Robot;
-import frc.utils.AbsoluteAnalogEncoder;
 
 import static edu.wpi.first.units.MutableMeasure.mutable;
 import static edu.wpi.first.units.Units.Rotations;
@@ -18,19 +18,24 @@ import static edu.wpi.first.units.Units.RotationsPerSecond;
 import static edu.wpi.first.units.Units.Second;
 import static edu.wpi.first.units.Units.Volts;
 
+import com.ctre.phoenix6.BaseStatusSignal;
+import com.ctre.phoenix6.SignalLogger;
+import com.ctre.phoenix6.StatusSignal;
+import com.ctre.phoenix6.configs.FeedbackConfigs;
+import com.ctre.phoenix6.controls.VoltageOut;
 import com.ctre.phoenix6.hardware.TalonFX;
+import com.ctre.phoenix6.signals.FeedbackSensorSourceValue;
 
 public class Module extends SubsystemBase {
     private TalonFX motor;
-    private AbsoluteAnalogEncoder encoder;
 
     private SysIdRoutine.Config cfg;
-
     private final SysIdRoutine routine;
-    private double veloLast = 0;
-    private double rate = 0;
-    private double encoderLast = 0;
-    private double totalRotations = 0;
+
+    private StatusSignal<Double> positionSignal;
+    private StatusSignal<Double> velocitySignal;
+
+    private VoltageOut sysIdControl = new VoltageOut(0);
     
     // Mutable holder for unit-safe voltage values, persisted to avoid reallocation.
     private final MutableMeasure<Voltage> appliedVoltage = mutable(Volts.of(0));
@@ -39,10 +44,32 @@ public class Module extends SubsystemBase {
 
     public Module(int motorCANId, int encoderPort) {
         motor = new TalonFX(motorCANId);
-        encoder = new AbsoluteAnalogEncoder(encoderPort, 0, true);
+        motor.getConfigurator().apply(new FeedbackConfigs()
+          .withFeedbackSensorSource(FeedbackSensorSourceValue.RotorSensor)
+          .withSensorToMechanismRatio(15.41)
+        );
 
-        cfg = new SysIdRoutine.Config(Velocity.combine(Volts, Second).of(0.25), null, null);
+         BaseStatusSignal.setUpdateFrequencyForAll(250,
+            motor.getPosition(),
+            motor.getVelocity(),
+            motor.getMotorVoltage());
 
+        /* Optimize out the other signals, since they're not particularly helpful for us */
+        motor.optimizeBusUtilization();
+
+        SignalLogger.start();
+
+        // positionSignal = motor.getPosition();
+        // velocitySignal = motor.getVelocity();
+
+        cfg = new SysIdRoutine.Config(
+          Velocity.combine(Volts, Second).of(0.5),
+          Volts.of(5), 
+          null,
+          (state) -> SignalLogger.writeString("state", state.toString())
+        );
+
+        /*
         routine = new SysIdRoutine(
           cfg,
           new SysIdRoutine.Mechanism(
@@ -53,46 +80,33 @@ public class Module extends SubsystemBase {
               // Tell SysId how to record a frame of data for each motor on the mechanism being
               // characterized.
               log -> {
-                // Record a frame for the left motors.  Since these share an encoder, we consider
-                // the entire group to be one motor.
                 log.motor("azi")
                     .voltage(
                         appliedVoltage.mut_replace(
                             motor.get() * RobotController.getBatteryVoltage(), Volts))
                     .angularPosition(angle.mut_replace(Robot.isReal() ? //If simulated, apply random "ideal" values (ie. get a solid r for a linear best fit)
-                      getEncoderWithRollOver() :
+                      positionSignal.getValue() :
                       appliedVoltage.magnitude()*Math.random(), Rotations)) 
                     .angularVelocity(
-                        velocity.mut_replace(rate, RotationsPerSecond));
+                        velocity.mut_replace(velocitySignal.getValue(), RotationsPerSecond));
               },
               // Tell SysId to make generated commands require this subsystem, suffix test state in
               // WPILog with this subsystem's name ("module")
               this));
+      */
+
+        routine = new SysIdRoutine(cfg,
+          new Mechanism(
+            (Measure<Voltage> volts)-> motor.setControl(sysIdControl.withOutput(volts.in(Volts))),
+            null,
+            this
+        ));
     }
 
     @Override
     public void periodic() {
-      double read = getEncoderWithRollOver();
-      if (Robot.isSimulation()) {
-        //In this case, apply random "ideal" values (ie. get a solid r for a linear best fit)
-        read = appliedVoltage.magnitude()*Math.random();
-      }
-      rate = (read-veloLast)/0.02;
-      veloLast = read;
-    }
-
-    //Returns the angle of the encoder with rollover (ie. If it changed from 360 to 0, return 361)
-    private double getEncoderWithRollOver() {
-      double read = encoder.getRotationDegrees()/360;
-      if (encoderLast > 0.5 && read < 0.5) { //Rollover past 360
-        totalRotations++;
-      }
-      if (encoderLast < 0.5 && read > 0.5) { //Rollover past 0
-       totalRotations--;
-      }
-      encoderLast = read;
-      if (totalRotations < 0) read*=-1;
-      return totalRotations+(read);
+      // positionSignal.refresh();
+      // velocitySignal.refresh();
     }
 
     public Command sysIdQuasistatic(SysIdRoutine.Direction direction) {

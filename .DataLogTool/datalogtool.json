@@ -1,4 +1,8 @@
 {
+  "download": {
+    "localDir": "/Users/liamloughead/Downloads/e",
+    "serverTeam": "2415"
+  },
   "output": {
     "outputFolder": "/Users/liamloughead/robotics/AzimuthTuner/logs/out"
   }
