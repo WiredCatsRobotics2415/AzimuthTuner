@@ -15,7 +15,7 @@ import edu.wpi.first.wpilibj2.command.sysid.SysIdRoutine;
 
 public class Robot extends TimedRobot {
 
-  private final int TUNE_MOTOR = 0; //0 - front left, 1 - front right, 2 - back left, 3 - back right
+  private final int TUNE_MOTOR = 3; //0 - front left, 1 - front right, 2 - back left, 3 - back right
 
   SendableChooser<Command> routineChooser;
   frc.subsystems.Module module;

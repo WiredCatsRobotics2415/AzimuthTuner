@@ -44,12 +44,8 @@ public class Module extends SubsystemBase {
 
     public Module(int motorCANId, int encoderPort) {
         motor = new TalonFX(motorCANId);
-        motor.getConfigurator().apply(new FeedbackConfigs()
-          .withFeedbackSensorSource(FeedbackSensorSourceValue.RotorSensor)
-          .withSensorToMechanismRatio(15.41)
-        );
 
-         BaseStatusSignal.setUpdateFrequencyForAll(250,
+        BaseStatusSignal.setUpdateFrequencyForAll(250,
             motor.getPosition(),
             motor.getVelocity(),
             motor.getMotorVoltage());
